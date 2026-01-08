@@ -6,9 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class Department extends Model
 {
-    protected $fillable = ['name'];
+    protected $fillable = ['name', 'division_id']; // ✅ เพิ่ม division_id
 
-    // ความสัมพันธ์: 1 แผนก มี User ได้หลายคน
+    // แผนก สังกัด 1 กอง
+    public function division()
+    {
+        return $this->belongsTo(Division::class);
+    }
+
     public function users()
     {
         return $this->hasMany(User::class);

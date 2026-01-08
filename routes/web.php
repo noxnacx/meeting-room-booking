@@ -70,6 +70,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::resource('rooms', RoomController::class);
         Route::resource('users', \App\Http\Controllers\Admin\UserController::class);
 
+        // ✅ Route สำหรับ API จัดการกอง/แผนก (ใช้แค่ Store/Update/Destroy พอ)
+        Route::resource('divisions', \App\Http\Controllers\Admin\DivisionController::class)->only(['store', 'update', 'destroy']);
+        Route::resource('departments', \App\Http\Controllers\Admin\DepartmentController::class)->only(['store', 'update', 'destroy']);
+
+
         // แก้ไข Route Amenities ให้ถูกต้อง
         Route::get('/amenities', [App\Http\Controllers\Admin\AmenityController::class, 'index'])
             ->name('amenities.index'); // จะกลายเป็น admin.amenities.index อัตโนมัติ

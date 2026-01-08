@@ -63,6 +63,7 @@ class User extends Authenticatable
         return $this->hasMany(\App\Models\Booking::class);
     }
 
+    // เพิ่ม method นี้ใน User.php
     public function department()
     {
         return $this->belongsTo(Department::class);

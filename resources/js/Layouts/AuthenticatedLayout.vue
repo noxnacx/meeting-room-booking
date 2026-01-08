@@ -60,7 +60,7 @@ const showingNavigationDropdown = ref(false);
                                     :href="route('admin.users.index')"
                                     :active="route().current('admin.users.*')"
                                 >
-                                    จัดการผู้ใช้งาน (Role)
+                                    จัดการบุคคล & องค์กร
                                 </NavLink>
                             </div>
                         </div>
@@ -187,7 +187,7 @@ const showingNavigationDropdown = ref(false);
                             :href="route('admin.users.index')"
                             :active="route().current('admin.users.*')"
                         >
-                            จัดการผู้ใช้งาน (Role)
+                            จัดการบุคคล & องค์กร
                         </ResponsiveNavLink>
                     </div>
 
