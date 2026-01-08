@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
 use Carbon\Carbon;
+use App\Models\Department; // เพิ่ม use เพื่อความสะอาดของโค้ด
 
 class BookingController extends Controller
 {
@@ -37,58 +38,77 @@ class BookingController extends Controller
         ]);
     }
 
-    // 2. หน้าฟอร์มจอง (มีอยู่แล้ว)
+    // 2. หน้าฟอร์มจอง
     public function create(Room $room)
     {
-        // +++ เพิ่มการตรวจสอบตรงนี้ครับ +++
         if ($room->status !== 'active') {
-            // ถ้าห้องไม่ Active ให้ดีดกลับหน้า Dashboard หรือแสดง Error 403
             return redirect()->route('dashboard')->with('error', 'ห้องนี้ปิดปรับปรุงชั่วคราว');
         }
 
-        // โค้ดเดิม...
-        $users = \App\Models\User::where('id', '!=', auth()->id())
-            ->orderBy('nickname', 'asc')
-            ->get(['id', 'name', 'nickname', 'email']);
+        // ✅ 1. ดึง division_id ของ user มาด้วย (สำคัญมาก เอาไว้กรองหน้าบ้าน)
+        $users = User::where('id', '!=', auth()->id())
+            ->orderBy('name', 'asc')
+            ->get(['id', 'name', 'nickname', 'email', 'avatar', 'department_id', 'division_id']);
+
+        // ✅ 2. เปลี่ยนจากส่ง departments เป็น divisions (พร้อมลูกๆ departments)
+        $divisions = \App\Models\Division::with('departments')->orderBy('name')->get();
 
         return Inertia::render('Bookings/Create', [
             'room' => $room,
-            'users' => $users
+            'users' => $users,
+            'divisions' => $divisions // ส่งตัวนี้แทน departments
         ]);
     }
 
-    // 3. บันทึกการจอง (มีอยู่แล้ว)
+    // 3. บันทึกการจอง (เพิ่ม Logic ป้องกันคนไม่ว่าง)
     public function store(Request $request)
     {
         $request->validate([
             'room_id' => 'required|exists:rooms,id,status,active',
             'title' => 'required|string|max:255',
-            'booking_date' => 'required|date|after_or_equal:today', // วันที่
-            'start_time' => 'required|date_format:H:i', // เวลาเริ่ม (ชั่วโมง:นาที)
-            'end_time' => 'required|date_format:H:i|after:start_time', // เวลาจบ
-            'participants' => 'array',
+            'booking_date' => 'required|date|after_or_equal:today',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i|after:start_time',
+            'participants' => 'nullable|array',
         ]);
 
-        // รวมร่าง: เอา วันที่ + เวลา มาต่อกัน เพื่อเก็บลง Database
         $startDateTime = $request->booking_date . ' ' . $request->start_time;
         $endDateTime = $request->booking_date . ' ' . $request->end_time;
 
-        // เช็คห้องว่าง (Collision Check) ด้วยเวลาที่รวมร่างแล้ว
-        $exists = Booking::where('room_id', $request->room_id)
+        // 1. เช็คห้องว่าง (Room Conflict Check)
+        $roomBusy = Booking::where('room_id', $request->room_id)
             ->where(function ($query) use ($startDateTime, $endDateTime) {
-                $query->whereBetween('start_time', [$startDateTime, $endDateTime])
-                      ->orWhereBetween('end_time', [$startDateTime, $endDateTime])
-                      ->orWhere(function ($q) use ($startDateTime, $endDateTime) {
-                          $q->where('start_time', '<', $startDateTime)
-                            ->where('end_time', '>', $endDateTime);
-                      });
+                $query->where(function ($q) use ($startDateTime, $endDateTime) {
+                    $q->where('start_time', '<', $endDateTime)
+                      ->where('end_time', '>', $startDateTime);
+                });
             })->exists();
 
-        if ($exists) {
-            return back()->withErrors(['start_time' => 'เวลานี้ห้องไม่ว่างแล้วครับ']);
+        if ($roomBusy) {
+            return back()->withErrors(['start_time' => '❌ ห้องไม่ว่างในช่วงเวลานี้']);
         }
 
-        // บันทึกข้อมูล
+        // 🔥 2. เช็คคนว่าง (Participants Conflict Check) 🔥
+        if ($request->participants) {
+            $busyPeople = [];
+            foreach ($request->participants as $userId) {
+                $user = User::find($userId);
+
+                // ใช้ฟังก์ชัน isAvailable ที่เราทำไว้ใน User Model
+                if ($user && !$user->isAvailable($startDateTime, $endDateTime)) {
+                    $busyPeople[] = $user->name . ($user->nickname ? " ({$user->nickname})" : "");
+                }
+            }
+
+            // ถ้าเจอคนไม่ว่าง -> ดีดกลับพร้อมรายชื่อ
+            if (count($busyPeople) > 0) {
+                return back()->withErrors([
+                    'participants' => '⚠️ ไม่สามารถจองได้ เนื่องจากมีผู้ติดนัดหมายอื่น: ' . implode(', ', $busyPeople) . ' (กรุณาลบรายชื่อออกก่อน)'
+                ]);
+            }
+        }
+
+        // 3. ผ่านทุกด่าน -> บันทึก
         $booking = Booking::create([
             'user_id' => auth()->id(),
             'room_id' => $request->room_id,
@@ -101,46 +121,39 @@ class BookingController extends Controller
             $booking->participants()->attach($request->participants);
         }
 
-        return redirect()->route('bookings.index');
+        return redirect()->route('bookings.index')->with('success', 'จองห้องประชุมสำเร็จ!');
     }
 
-    // 4. ยกเลิกการจอง
-    public function destroy(Booking $booking)
-    {
-        $user = auth()->user();
-
-        // อนุญาตถ้าเป็นเจ้าของ หรือ Admin หรือ Sub Admin
-        if ($booking->user_id !== $user->id && !$user->isAdmin() && !$user->isSubAdmin()) {
-            abort(403, 'คุณไม่มีสิทธิ์ยกเลิกการจองนี้');
-        }
-
-        $booking->delete();
-
-        return back();
-    }
-
+    // 4. หน้าแก้ไขการจอง
+    // แก้ไขฟังก์ชัน edit
     public function edit(Booking $booking)
     {
-        // เช็คสิทธิ์: ต้องเป็นเจ้าของ หรือ Admin หรือ Sub Admin เท่านั้น
         $user = auth()->user();
         if ($booking->user_id !== $user->id && !$user->isAdmin() && !$user->isSubAdmin()) {
             abort(403, 'คุณไม่มีสิทธิ์แก้ไขการจองนี้');
         }
 
-        // โหลดข้อมูลห้องทั้งหมด (เผื่อเปลี่ยนห้อง) และเพื่อนๆ (เผื่อเปลี่ยนคนเชิญ)
         $rooms = Room::where('status', 'active')->get();
-        $users = \App\Models\User::where('id', '!=', $booking->user_id)->get();
+
+        // ✅ 1. ดึง User พร้อม department_id, division_id (เพื่อใช้กรองเชิญกลุ่ม)
+        $users = User::where('id', '!=', $booking->user_id) // ไม่เอาตัวเอง (เจ้าของเดิม)
+            ->orderBy('name', 'asc')
+            ->get(['id', 'name', 'nickname', 'email', 'avatar', 'department_id', 'division_id']);
+
+        // ✅ 2. ดึงโครงสร้างองค์กร (Divisions -> Departments) ส่งไปหน้าบ้าน
+        $divisions = \App\Models\Division::with('departments')->orderBy('name')->get();
 
         return Inertia::render('Bookings/Edit', [
-            'booking' => $booking->load('participants'), // โหลดคนถูกเชิญมาด้วย
+            'booking' => $booking->load('participants'),
             'rooms' => $rooms,
             'users' => $users,
+            'divisions' => $divisions // ส่งเพิ่มไปครับ
         ]);
     }
 
+    // 5. อัปเดตการจอง
     public function update(Request $request, Booking $booking)
     {
-        // ... (เช็คสิทธิ์เหมือนเดิม) ...
         $user = auth()->user();
         if ($booking->user_id !== $user->id && !$user->isAdmin() && !$user->isSubAdmin()) {
             abort(403);
@@ -155,7 +168,7 @@ class BookingController extends Controller
             'participants' => 'array',
         ]);
 
-        // รวมร่างเหมือนกัน
+        // รวมร่างวันเวลา
         $startDateTime = $request->booking_date . ' ' . $request->start_time;
         $endDateTime = $request->booking_date . ' ' . $request->end_time;
 
@@ -173,7 +186,19 @@ class BookingController extends Controller
         return redirect()->route('bookings.index');
     }
 
+    // 6. ยกเลิกการจอง
+    public function destroy(Booking $booking)
+    {
+        $user = auth()->user();
+        if ($booking->user_id !== $user->id && !$user->isAdmin() && !$user->isSubAdmin()) {
+            abort(403, 'คุณไม่มีสิทธิ์ยกเลิกการจองนี้');
+        }
 
+        $booking->delete();
+        return back();
+    }
+
+    // 7. แสดงรายละเอียดการจอง
     public function show(Booking $booking)
     {
         $user = auth()->user();
@@ -190,7 +215,7 @@ class BookingController extends Controller
         ]);
     }
 
-
+    // 8. API: ดึงข้อมูลการจองตามวันที่ (สำหรับ Timeline หน้าจอง)
     public function getBookingsByDate(Request $request)
     {
         $request->validate([
@@ -213,15 +238,13 @@ class BookingController extends Controller
                     'end_time' => date('H:i', strtotime($booking->end_time)),
                     'booked_by' => $booking->user->name,
                     'avatar' => $booking->user->avatar,
-
-                    // คำนวณตำแหน่งสำหรับ CSS (สมมติเวลาทำการ 08:00 - 18:00 = 10 ชั่วโมง = 600 นาที)
-                    // สูตรคร่าวๆ เพื่อส่งไปคำนวณต่อ หรือคำนวณหน้าบ้านก็ได้
                 ];
             });
 
         return response()->json($bookings);
     }
 
+    // 9. API: สำหรับ FullCalendar
     public function calendarEvents(Request $request)
     {
         // 1. รับค่า start/end จากปฏิทิน และแปลงเป็น format ที่ MySQL เข้าใจ (Y-m-d H:i:s)

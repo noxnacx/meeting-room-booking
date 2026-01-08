@@ -41,6 +41,13 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
 
                                 <NavLink
+                                    :href="route('schedule.index')"
+                                    :active="route().current('schedule.index')"
+                                >
+                                    ตารางงานทีม
+                                </NavLink>
+
+                                <NavLink
                                     :href="route('calendar.index')"
                                     :active="route().current('calendar.index')"
                                 >
@@ -165,6 +172,13 @@ const showingNavigationDropdown = ref(false);
                             :active="route().current('bookings.index')"
                         >
                             ประวัติการจอง
+                        </ResponsiveNavLink>
+
+                        <ResponsiveNavLink
+                            :href="route('schedule.index')"
+                            :active="route().current('schedule.index')"
+                        >
+                            ตารางงานทีม
                         </ResponsiveNavLink>
 
                         <ResponsiveNavLink

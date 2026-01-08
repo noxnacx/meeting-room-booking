@@ -1,11 +1,11 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, useForm, Link } from '@inertiajs/vue3';
-import { ref, computed, onMounted, watch } from 'vue';
+import { computed, watch, onMounted } from 'vue'; // ไม่ต้องใช้ ref แล้ว
 
 const props = defineProps({
     user: Object,
-    divisions: Array // รับข้อมูลโครงสร้างกอง+แผนกมา
+    divisions: Array
 });
 
 const form = useForm({
@@ -14,62 +14,71 @@ const form = useForm({
     nickname: props.user.nickname,
     role: props.user.role,
     department_id: props.user.department_id,
+    division_id: props.user.division_id, // ✅ รับค่า division_id มาแก้ไข
 });
 
-// --- Logic แยกเลือก กอง -> แผนก ---
-const selectedDivisionId = ref(null);
+// ✅ ไม่ใช้ ref(null) แล้ว แต่ใช้ form.division_id แทน
+// const selectedDivisionId = ref(null); <--- ลบอันนี้ทิ้งได้เลย
 
-// 1. ตอนโหลดหน้า: ถ้า User มีแผนกอยู่แล้ว ให้หาว่าอยู่กองไหน แล้ว Set ค่าเริ่มต้นให้
-onMounted(() => {
+// 1. ฟังก์ชันหา "กอง" (ถ้า User มีแต่ Department แต่ไม่มี Division ใน DB ระบบจะ Auto-fill ให้)
+const initDivision = () => {
+    // ถ้ามี division_id อยู่แล้ว ก็ใช้ได้เลย
+    if (form.division_id) return;
+
+    // ถ้าไม่มี division_id แต่มี department_id ให้ลองไปค้นดูว่าอยู่กองไหน
     if (props.user.department_id) {
-        // วนหาว่า department_id นี้ อยู่ใน division ไหน
-        for (const div of props.divisions) {
-            if (div.departments.find(d => d.id === props.user.department_id)) {
-                selectedDivisionId.value = div.id;
-                break;
-            }
+        const foundDiv = props.divisions.find(div =>
+            div.departments.some(dept => dept.id === props.user.department_id)
+        );
+        if (foundDiv) {
+            form.division_id = foundDiv.id;
         }
     }
+};
+
+onMounted(() => {
+    initDivision();
 });
 
-// 2. กรองแผนกที่จะแสดง ตามกองที่เลือก
+// 2. กรองแผนกตาม form.division_id
 const availableDepartments = computed(() => {
-    if (!selectedDivisionId.value) return [];
-    const div = props.divisions.find(d => d.id === selectedDivisionId.value);
+    if (!form.division_id) return [];
+    const div = props.divisions.find(d => d.id === form.division_id);
     return div ? div.departments : [];
 });
 
-// 3. ถ้าเปลี่ยนกอง ให้ล้างค่าแผนกเดิมทิ้ง (กัน User ลืมเปลี่ยน)
-watch(selectedDivisionId, (newVal, oldVal) => {
-    // เช็คว่าไม่ใช่การโหลดครั้งแรก (oldVal !== undefined) เพื่อไม่ให้ล้างค่าตอน Edit
-    if (oldVal !== undefined) {
-        form.department_id = null;
+// 3. Watcher: ถ้าเปลี่ยนกอง ให้เช็คว่าแผนกเดิมยังเข้ากันได้ไหม
+watch(() => form.division_id, (newVal) => {
+    const isDeptValid = props.divisions
+        .find(div => div.id === newVal)
+        ?.departments.some(dept => dept.id === form.department_id);
+
+    if (!isDeptValid) {
+        form.department_id = null; // ถ้าแผนกเดิมไม่อยู่ในกองใหม่ ให้เคลียร์แผนกทิ้ง
     }
 });
+
+const submit = () => {
+    form.post(route('admin.users.update', props.user.id));
+};
 </script>
 
 <template>
     <Head title="แก้ไขผู้ใช้งาน" />
-
     <AuthenticatedLayout>
-        <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">แก้ไขข้อมูลผู้ใช้: {{ user.name }}</h2>
-        </template>
-
+        <template #header><h2 class="font-semibold text-xl text-gray-800">แก้ไขข้อมูลผู้ใช้: {{ user.name }}</h2></template>
         <div class="py-12 bg-gray-50">
             <div class="max-w-xl mx-auto sm:px-6 lg:px-8">
                 <div class="bg-white p-8 shadow-sm rounded-2xl border border-gray-100">
-                    <form @submit.prevent="form.post(route('admin.users.update', user.id))" class="space-y-6">
+                    <form @submit.prevent="submit" class="space-y-6">
 
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อ - นามสกุล</label>
-                            <input v-model="form.name" type="text" class="w-full rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500" required />
-                            <div v-if="form.errors.name" class="text-red-500 text-sm mt-1">{{ form.errors.name }}</div>
+                            <input v-model="form.name" type="text" class="w-full rounded-xl border-gray-300 shadow-sm" required />
                         </div>
-
                         <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อเล่น (Nickname)</label>
-                            <input v-model="form.nickname" type="text" class="w-full rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500" />
+                            <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อเล่น</label>
+                            <input v-model="form.nickname" type="text" class="w-full rounded-xl border-gray-300 shadow-sm" />
                         </div>
 
                         <hr class="border-gray-100">
@@ -77,48 +86,35 @@ watch(selectedDivisionId, (newVal, oldVal) => {
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">1. เลือกกอง (Division)</label>
-                                <select v-model="selectedDivisionId" class="w-full rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500 bg-gray-50">
+                                <select v-model="form.division_id" class="w-full rounded-xl border-gray-300 shadow-sm bg-gray-50">
                                     <option :value="null">- กรุณาเลือกกอง -</option>
-                                    <option v-for="div in divisions" :key="div.id" :value="div.id">
-                                        {{ div.name }}
-                                    </option>
+                                    <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
                                 </select>
                             </div>
 
                             <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">2. เลือกแผนก (Department)</label>
-                                <select v-model="form.department_id" :disabled="!selectedDivisionId" class="w-full rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-400">
-                                    <option :value="null">- เลือกแผนก -</option>
-                                    <option v-for="dept in availableDepartments" :key="dept.id" :value="dept.id">
-                                        {{ dept.name }}
-                                    </option>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">2. เลือกแผนก (Dept)</label>
+                                <select v-model="form.department_id" :disabled="!form.division_id" class="w-full rounded-xl border-gray-300 shadow-sm disabled:bg-gray-100">
+                                    <option :value="null">- ไม่ระบุแผนก -</option>
+                                    <option v-for="dept in availableDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
                                 </select>
-                                <div v-if="form.errors.department_id" class="text-red-500 text-sm mt-1">{{ form.errors.department_id }}</div>
                             </div>
                         </div>
 
-                        <hr class="border-gray-100">
-
                         <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">ตำแหน่ง (Role)</label>
-                            <select v-model="form.role" class="w-full rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500">
-                                <option value="user">User (ผู้ใช้ทั่วไป)</option>
-                                <option value="sub_admin">Sub Admin (ผู้ช่วยผู้ดูแล)</option>
-                                <option value="admin">Admin (ผู้ดูแลระบบ)</option>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">ตำแหน่ง</label>
+                            <select v-model="form.role" class="w-full rounded-xl border-gray-300 shadow-sm">
+                                <option value="user">User</option>
+                                <option value="sub_admin">Sub Admin</option>
+                                <option value="admin">Admin</option>
                             </select>
-                            <p class="mt-2 text-xs text-gray-500">
-                                * <b>Admin:</b> จัดการได้ทุกอย่าง | <b>Sub Admin:</b> จัดการห้องได้ แก้ไขคนอื่นไม่ได้
-                            </p>
                         </div>
 
                         <div class="flex justify-end gap-3 pt-6 border-t border-gray-100">
-                            <Link :href="route('admin.users.index')" class="px-5 py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 font-bold hover:bg-gray-50 transition">
-                                ยกเลิก
-                            </Link>
-                            <button type="submit" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition" :disabled="form.processing">
-                                บันทึกการเปลี่ยนแปลง
-                            </button>
+                            <Link :href="route('admin.users.index')" class="px-5 py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 font-bold hover:bg-gray-50">ยกเลิก</Link>
+                            <button type="submit" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg" :disabled="form.processing">บันทึก</button>
                         </div>
+
                     </form>
                 </div>
             </div>

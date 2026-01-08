@@ -1,12 +1,13 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, useForm, Link } from '@inertiajs/vue3';
 import { ref, watch, onMounted, computed } from 'vue';
 import axios from 'axios';
 
 const props = defineProps({
     room: Object,
-    users: Array
+    users: Array,
+    divisions: Array // ✅ รับค่า divisions (ที่มี departments ข้างใน)
 });
 
 const form = useForm({
@@ -21,9 +22,9 @@ const form = useForm({
 const bookings = ref([]);
 const loading = ref(false);
 
-// ตั้งค่าเวลาทำการ (08:00 - 18:00)
+// ตั้งค่าเวลาทำการ (08:00 - 20:00)
 const startHour = 8;
-const endHour = 18;
+const endHour = 20;
 const totalMinutes = (endHour - startHour) * 60;
 
 // ดึงข้อมูลการจอง
@@ -62,33 +63,81 @@ const calculateStyle = (start, end) => {
 const searchQuery = ref('');
 const selectedUsers = ref([]);
 
+// ✅ ตัวแปรสำหรับ Dropdown 2 ชั้น
+const selectedDivisionId = ref("");
+const selectedDepartmentId = ref("");
+
+// ✅ Computed: กรองแผนกตามกองที่เลือก
+const availableDepartments = computed(() => {
+    if (!selectedDivisionId.value) return [];
+    const div = props.divisions.find(d => d.id === selectedDivisionId.value);
+    return div ? div.departments : [];
+});
+
+// ถ้าเปลี่ยนกอง ให้เคลียร์แผนก
+watch(selectedDivisionId, () => { selectedDepartmentId.value = ""; });
+
+// Logic กรอง User (Search)
 const filteredUsers = computed(() => {
     if (!searchQuery.value) return [];
-
-    // Normalization สำหรับภาษาไทย และตัดช่องว่าง
     const q = searchQuery.value.trim().toLowerCase().normalize("NFC");
-
     return props.users.filter(u => {
         const isSelected = selectedUsers.value.some(s => s.id === u.id);
         if (isSelected) return false;
-
         const name = (u.name || '').toLowerCase().normalize("NFC");
         const email = (u.email || '').toLowerCase().normalize("NFC");
         const nickname = (u.nickname || '').toLowerCase().normalize("NFC");
-
         return name.includes(q) || email.includes(q) || nickname.includes(q);
     });
 });
 
 const selectUser = (u) => {
-    selectedUsers.value.push(u);
-    form.participants.push(u.id);
+    if (!selectedUsers.value.some(user => user.id === u.id)) {
+        selectedUsers.value.push(u);
+        form.participants.push(u.id);
+    }
     searchQuery.value = '';
 };
 
 const removeUser = (uid) => {
     selectedUsers.value = selectedUsers.value.filter(u => u.id !== uid);
     form.participants = form.participants.filter(id => id !== uid);
+};
+
+// 🔥🔥 แก้ไขฟังก์ชัน inviteGroup ให้รองรับทั้ง กอง และ แผนก 🔥🔥
+const inviteGroup = () => {
+    // ต้องเลือกกองก่อนเป็นอย่างน้อย
+    if (!selectedDivisionId.value) return;
+
+    let usersToAdd = [];
+
+    // กรณี 1: เลือกแผนกด้วย -> เอาเฉพาะคนในแผนกนั้น
+    if (selectedDepartmentId.value) {
+        usersToAdd = props.users.filter(u => u.department_id == selectedDepartmentId.value);
+    }
+    // กรณี 2: ไม่เลือกแผนก (เลือกแต่กอง) -> เอาทั้งกอง
+    else {
+        // 1. หาว่ากองที่เลือก มีแผนกอะไรบ้าง (เก็บ ID แผนกไว้ใน Array)
+        const div = props.divisions.find(d => d.id === selectedDivisionId.value);
+        const deptIdsInDiv = div ? div.departments.map(dept => dept.id) : [];
+
+        // 2. กรอง User ที่:
+        //    A. มี division_id ตรงกับที่เลือก
+        //    B. หรือ มี department_id อยู่ในลิสต์แผนกของกองนี้
+        usersToAdd = props.users.filter(u =>
+            u.division_id == selectedDivisionId.value ||
+            (u.department_id && deptIdsInDiv.includes(u.department_id))
+        );
+    }
+
+    // เพิ่มคนเข้าลิสต์ (เช็คไม่ให้ซ้ำ)
+    usersToAdd.forEach(u => {
+        selectUser(u);
+    });
+
+    // รีเซ็ตค่าหลังกดเพิ่ม
+    selectedDivisionId.value = "";
+    selectedDepartmentId.value = "";
 };
 </script>
 
@@ -148,6 +197,7 @@ const removeUser = (uid) => {
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม (เช่น 08:30)</label>
                                 <input v-model="form.start_time" type="time" class="w-full rounded-xl border-gray-200 shadow-sm focus:ring-indigo-500 text-center font-bold" required>
+                                <p v-if="form.errors.start_time" class="text-red-500 text-xs mt-1">{{ form.errors.start_time }}</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด (เช่น 10:15)</label>
@@ -157,7 +207,38 @@ const removeUser = (uid) => {
 
                         <div class="border-t pt-4">
                             <label class="block text-sm font-bold text-gray-700 mb-2">เชิญผู้เข้าร่วม</label>
-                            <input v-model="searchQuery" type="text" placeholder="+ ค้นหาชื่อ/อีเมล" class="w-full rounded-xl border-dashed border-2 border-gray-300 py-2 text-center text-sm bg-gray-50 mb-2">
+
+                            <div class="grid grid-cols-2 gap-2 mb-2">
+                                <select v-model="selectedDivisionId" class="w-full rounded-xl border-gray-200 text-sm shadow-sm py-2">
+                                    <option value="">📂 กรุณาเลือกกอง</option>
+                                    <option v-for="div in divisions" :key="div.id" :value="div.id">
+                                        {{ div.name }}
+                                    </option>
+                                </select>
+
+                                <select v-model="selectedDepartmentId" :disabled="!selectedDivisionId" class="w-full rounded-xl border-gray-200 text-sm shadow-sm py-2 disabled:bg-gray-100">
+                                    <option value="">📑 ทั้งกอง (หรือระบุแผนก)</option>
+                                    <option v-for="dept in availableDepartments" :key="dept.id" :value="dept.id">
+                                        {{ dept.name }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <button type="button" @click="inviteGroup" :disabled="!selectedDivisionId" class="w-full mb-3 bg-indigo-100 text-indigo-700 py-2 rounded-xl text-sm font-bold hover:bg-indigo-200 disabled:opacity-50 transition">
+                                <span v-if="!selectedDivisionId">+ เลือกกองเพื่อเชิญ</span>
+                                <span v-else-if="!selectedDepartmentId">+ เชิญทั้งกอง {{ divisions.find(d => d.id === selectedDivisionId)?.name }}</span>
+                                <span v-else>+ เชิญแผนก {{ availableDepartments.find(d => d.id === selectedDepartmentId)?.name }}</span>
+                            </button>
+
+                            <input v-model="searchQuery" type="text" placeholder="+ ค้นหาชื่อ/อีเมล เพิ่มเติม" class="w-full rounded-xl border-dashed border-2 border-gray-300 py-2 text-center text-sm bg-gray-50 mb-2">
+
+                            <div v-if="form.errors.participants" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-2 flex items-start gap-2 animate-pulse">
+                                <span class="text-xl">🚨</span>
+                                <div>
+                                    <div class="text-red-800 font-bold text-sm">ไม่สามารถจองได้</div>
+                                    <div class="text-red-600 text-xs">{{ form.errors.participants }}</div>
+                                </div>
+                            </div>
 
                             <div v-if="searchQuery && filteredUsers.length > 0" class="bg-white shadow-lg rounded-xl border max-h-40 overflow-auto mb-2">
                                 <div v-for="user in filteredUsers" :key="user.id" @click="selectUser(user)" class="p-2 hover:bg-indigo-50 cursor-pointer text-sm flex items-center gap-2 border-b last:border-0">
@@ -188,7 +269,10 @@ const removeUser = (uid) => {
 
                         <div class="pt-4 flex justify-between gap-3">
                             <button type="button" @click="$inertia.visit(route('bookings.index'))" class="w-1/3 py-3 rounded-xl border border-gray-300 text-gray-500 font-bold hover:bg-gray-50">ยกเลิก</button>
-                            <button type="submit" class="w-2/3 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200" :disabled="form.processing">ยืนยันการจอง</button>
+                            <button type="submit" class="w-2/3 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="form.processing">
+                                <span v-if="form.processing">ตรวจสอบข้อมูล...</span>
+                                <span v-else>ยืนยันการจอง</span>
+                            </button>
                         </div>
                     </form>
                 </div>
