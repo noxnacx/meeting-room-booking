@@ -41,6 +41,13 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
 
                                 <NavLink
+                                    :href="route('calendar.index')"
+                                    :active="route().current('calendar.index')"
+                                >
+                                    ปฏิทินรวม
+                                </NavLink>
+
+                                <NavLink
                                     v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'sub_admin'"
                                     :href="route('admin.rooms.index')"
                                     :active="route().current('admin.rooms.*')"
@@ -158,6 +165,13 @@ const showingNavigationDropdown = ref(false);
                             :active="route().current('bookings.index')"
                         >
                             ประวัติการจอง
+                        </ResponsiveNavLink>
+
+                        <ResponsiveNavLink
+                            :href="route('calendar.index')"
+                            :active="route().current('calendar.index')"
+                        >
+                            ปฏิทินรวม
                         </ResponsiveNavLink>
 
                         <ResponsiveNavLink

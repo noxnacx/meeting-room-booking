@@ -5,6 +5,7 @@ use App\Http\Controllers\BookingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Admin\UserController;
 use App\Models\Room;
+use App\Models\Amenity;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -35,9 +36,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // --- 1. Dashboard ---
     Route::get('/dashboard', function () {
         return Inertia::render('Dashboard', [
-            'rooms' => Room::all()
+            // ส่งห้องที่ Active
+            'rooms' => Room::where('status', 'active')->get(),
+
+            // ส่ง Amenities ทั้งหมดไป (โดย key ด้วย id เพื่อให้ Dashboard จับคู่ได้ง่าย)
+            'allAmenities' => Amenity::all()->keyBy('id')
         ]);
-    })->name('dashboard');
+    })->middleware(['auth', 'verified'])->name('dashboard');
 
     Route::get('/api/bookings-by-date', [BookingController::class, 'getBookingsByDate'])->name('api.get-bookings-by-date');
 
@@ -59,9 +64,21 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- 3. Admin System (จัดการห้องประชุม) ---
     // URL จะเป็น: /admin/rooms, /admin/rooms/create ฯลฯ
+    // แก้ไขตรงนี้: ลบ /admin และ admin. ที่ซ้ำซ้อนออก
     Route::prefix('admin')->name('admin.')->group(function () {
+
         Route::resource('rooms', RoomController::class);
         Route::resource('users', \App\Http\Controllers\Admin\UserController::class);
+
+        // แก้ไข Route Amenities ให้ถูกต้อง
+        Route::get('/amenities', [App\Http\Controllers\Admin\AmenityController::class, 'index'])
+            ->name('amenities.index'); // จะกลายเป็น admin.amenities.index อัตโนมัติ
+
+        Route::post('/amenities', [App\Http\Controllers\Admin\AmenityController::class, 'store'])
+            ->name('amenities.store');
+
+        Route::delete('/amenities/{amenity}', [App\Http\Controllers\Admin\AmenityController::class, 'destroy'])
+            ->name('amenities.destroy');
     });
 
 
@@ -70,5 +87,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
+
+Route::get('/api/calendar-events', [BookingController::class, 'calendarEvents'])->name('api.calendar-events');
+Route::get('/calendar', function () {
+    return Inertia::render('Calendar/Index');
+})->name('calendar.index');
 
 require __DIR__.'/auth.php';

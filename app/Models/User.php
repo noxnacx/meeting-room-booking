@@ -62,4 +62,10 @@ class User extends Authenticatable
     {
         return $this->hasMany(\App\Models\Booking::class);
     }
+
+    public function department()
+    {
+        return $this->belongsTo(Department::class);
+    }
+
 }

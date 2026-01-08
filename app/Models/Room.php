@@ -7,14 +7,13 @@ use Illuminate\Database\Eloquent\Model;
 
 class Room extends Model
 {
-    use HasFactory;
+    protected $fillable = [
+        'name', 'capacity', 'description', 'status', 'color',
+        'image_path', 'amenities' // <--- เพิ่มตรงนี้
+    ];
 
-    // เพิ่มบรรทัดนี้: อนุญาตให้เติมข้อมูลได้ทุกช่อง (หรือจะใช้ $fillable ก็ได้)
-    protected $guarded = [];
-
-    public function scopeActive($query)
-    {
-        return $query->where('status', 'active');
-    }
-
+    // แปลง JSON จาก Database เป็น Array ให้อัตโนมัติ
+    protected $casts = [
+        'amenities' => 'array',
+    ];
 }

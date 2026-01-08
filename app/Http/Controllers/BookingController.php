@@ -7,6 +7,7 @@ use App\Models\Booking;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
+use Carbon\Carbon;
 
 class BookingController extends Controller
 {
@@ -221,6 +222,49 @@ class BookingController extends Controller
         return response()->json($bookings);
     }
 
+    public function calendarEvents(Request $request)
+    {
+        // 1. รับค่า start/end จากปฏิทิน และแปลงเป็น format ที่ MySQL เข้าใจ (Y-m-d H:i:s)
+        $start = $request->query('start') ? Carbon::parse($request->query('start'))->toDateTimeString() : null;
+        $end = $request->query('end') ? Carbon::parse($request->query('end'))->toDateTimeString() : null;
 
+        // 2. Query ข้อมูล
+        $bookings = Booking::with(['room', 'user', 'participants']);
 
+        // ถ้ามี start/end ส่งมา ให้กรองตามช่วงเวลา
+        if ($start && $end) {
+            $bookings->where(function ($q) use ($start, $end) {
+                $q->where('start_time', '<', $end)
+                  ->where('end_time', '>', $start);
+            });
+        }
+
+        // 3. จัดรูปแบบข้อมูลส่งกลับ (เพิ่ม participants เข้าไปใน extendedProps)
+        $events = $bookings->get()->map(function ($booking) {
+            return [
+                'id' => $booking->id,
+                'title' => $booking->room->name,
+                'start' => $booking->start_time,
+                'end' => $booking->end_time,
+                'backgroundColor' => $booking->room->color ?? '#6b7280',
+                'borderColor' => 'transparent',
+                'textColor' => '#ffffff',
+                'extendedProps' => [
+                    'topic' => $booking->title,
+                    'room_name' => $booking->room->name,
+                    'host_name' => $booking->user->name,
+                    'host_avatar' => $booking->user->avatar,
+                    // ส่งรายชื่อผู้เข้าร่วมไปด้วย
+                    'participants' => $booking->participants->map(function($p) {
+                         return [
+                             'name' => $p->name,
+                             'avatar' => $p->avatar
+                         ];
+                    })
+                ]
+            ];
+        });
+
+        return response()->json($events);
+    }
 }
