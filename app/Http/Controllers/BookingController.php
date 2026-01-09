@@ -12,15 +12,17 @@ use App\Models\Department; // เพิ่ม use เพื่อความส
 
 class BookingController extends Controller
 {
-    // 1. หน้าแสดงประวัติการจองของฉัน (My Bookings)
-    public function index()
+    // 1. หน้าแสดงประวัติการจอง (อัปเกรด: เพิ่มตัวกรอง + รายละเอียดผู้จอง)
+    public function index(Request $request)
     {
         $user = auth()->user();
 
-        // เริ่ม Query
-        $query = Booking::with('room')->orderBy('start_time', 'desc');
+        // เริ่ม Query พร้อมดึงความสัมพันธ์ที่ต้องใช้ (room, user+division+department, participants)
+        $query = Booking::with(['room', 'user.division', 'user.department', 'participants'])
+            ->orderBy('start_time', 'desc');
 
-        // ถ้าไม่ใช่ Admin และไม่ใช่ Sub Admin -> ให้เห็นแค่ของตัวเอง + ที่ตัวเองถูกเชิญ
+        // --- Permission Check ---
+        // ถ้าไม่ใช่ Admin/Sub Admin เห็นแค่ของตัวเอง + ที่ถูกเชิญ
         if (!$user->isAdmin() && !$user->isSubAdmin()) {
             $query->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
@@ -29,12 +31,52 @@ class BookingController extends Controller
                   });
             });
         }
-        // ถ้าเป็น Admin/Sub Admin จะไม่เข้าเงื่อนไขข้างบน = เห็นทั้งหมด (All Bookings)
 
-        $bookings = $query->get();
+        // --- 🔍 Filter Logic ---
+
+        // 1. ค้นหา (ชื่อหัวข้อ หรือ ชื่อผู้จอง)
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhereHas('user', function($u) use ($search) {
+                      $u->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // 2. กรองตามกอง (ของผู้จอง)
+        if ($request->filled('division_id')) {
+            $query->whereHas('user', function($q) use ($request) {
+                $q->where('division_id', $request->division_id);
+            });
+        }
+
+        // 3. กรองตามแผนก (ของผู้จอง)
+        if ($request->filled('department_id')) {
+            $query->whereHas('user', function($q) use ($request) {
+                $q->where('department_id', $request->department_id);
+            });
+        }
+
+        // 4. กรองช่วงเวลา (วันที่เริ่ม - วันที่สิ้นสุด)
+        if ($request->filled('start_date')) {
+            $query->whereDate('start_time', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate('start_time', '<=', $request->end_date);
+        }
+
+        // Pagination + เก็บ Query String ไว้เวลากดหน้าถัดไป
+        $bookings = $query->paginate(10)->withQueryString();
+
+        // ส่งข้อมูลกอง/แผนก ไปทำ Dropdown ตัวกรอง
+        $divisions = \App\Models\Division::with('departments')->orderBy('name')->get();
 
         return Inertia::render('Bookings/Index', [
-            'bookings' => $bookings
+            'bookings' => $bookings,
+            'divisions' => $divisions,
+            'filters' => $request->only(['search', 'division_id', 'department_id', 'start_date', 'end_date'])
         ]);
     }
 
