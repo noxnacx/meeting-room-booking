@@ -1,11 +1,14 @@
 <?php
 
-use App\Http\Controllers\Admin\RoomController;
-use App\Http\Controllers\BookingController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\BookingController;
+use App\Http\Controllers\ScheduleController;
+// Admin Controllers
+use App\Http\Controllers\Admin\RoomController;
 use App\Http\Controllers\Admin\UserController;
-use App\Models\Room;
-use App\Models\Amenity;
+use App\Http\Controllers\Admin\DivisionController;
+use App\Http\Controllers\Admin\DepartmentController;
+use App\Http\Controllers\Admin\AmenityController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -33,70 +36,72 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    // --- 1. Dashboard ---
-    Route::get('/dashboard', function () {
-        return Inertia::render('Dashboard', [
-            // ส่งห้องที่ Active
-            'rooms' => Room::where('status', 'active')->get(),
+    // --- 1. Dashboard & Main Pages ---
 
-            // ส่ง Amenities ทั้งหมดไป (โดย key ด้วย id เพื่อให้ Dashboard จับคู่ได้ง่าย)
-            'allAmenities' => Amenity::all()->keyBy('id')
-        ]);
-    })->middleware(['auth', 'verified'])->name('dashboard');
+    // ✅ แก้ไข: ใช้ BookingController::dashboard แทน function()
+    // หน้า Dashboard (สถิติภาพรวม)
+    Route::get('/dashboard', [BookingController::class, 'dashboard'])->name('dashboard');
 
-    Route::get('/api/bookings-by-date', [BookingController::class, 'getBookingsByDate'])->name('api.get-bookings-by-date');
+    // ✅ เพิ่มใหม่: หน้าเลือกห้องจอง (ย้ายมาจาก Dashboard เดิม)
+    Route::get('/reserve-room', [BookingController::class, 'selectRoom'])->name('bookings.select_room');
+
 
     // --- 2. Booking System (User) ---
-    // ดูประวัติการจองของฉัน
+
+    // ประวัติการจอง
     Route::get('/my-bookings', [BookingController::class, 'index'])->name('bookings.index');
 
-    // จองห้อง (ฟอร์ม + บันทึก)
+    // กระบวนการจอง
     Route::get('/rooms/{room}/book', [BookingController::class, 'create'])->name('bookings.create');
     Route::post('/bookings', [BookingController::class, 'store'])->name('bookings.store');
 
-    // ยกเลิกการจอง
-    Route::get('/bookings/{booking}/edit', [BookingController::class, 'edit'])->name('bookings.edit');
-    Route::put('/bookings/{booking}', [BookingController::class, 'update'])->name('bookings.update'); // ใช้ PUT
-
+    // การจัดการการจอง (ดู, แก้ไข, ยกเลิก)
     Route::get('/bookings/{booking}', [BookingController::class, 'show'])->name('bookings.show');
+    Route::get('/bookings/{booking}/edit', [BookingController::class, 'edit'])->name('bookings.edit');
+    Route::put('/bookings/{booking}', [BookingController::class, 'update'])->name('bookings.update');
     Route::delete('/bookings/{booking}', [BookingController::class, 'destroy'])->name('bookings.destroy');
 
-    Route::get('/schedule', [App\Http\Controllers\ScheduleController::class, 'index'])->name('schedule.index');
 
-    // --- 3. Admin System (จัดการห้องประชุม) ---
-    // URL จะเป็น: /admin/rooms, /admin/rooms/create ฯลฯ
-    // แก้ไขตรงนี้: ลบ /admin และ admin. ที่ซ้ำซ้อนออก
+    // --- 3. Schedules & Calendar ---
+
+    // ตารางงานทีม (Timeline)
+    Route::get('/schedule', [ScheduleController::class, 'index'])->name('schedule.index');
+
+    // ปฏิทินรวม (Calendar)
+    Route::get('/calendar', function () {
+        return Inertia::render('Calendar/Index');
+    })->name('calendar.index');
+
+
+    // --- 4. Internal APIs (สำหรับ Ajax/Axios) ---
+    Route::get('/api/bookings-by-date', [BookingController::class, 'getBookingsByDate'])->name('api.get-bookings-by-date');
+    Route::get('/api/calendar-events', [BookingController::class, 'calendarEvents'])->name('api.calendar-events');
+
+
+    // --- 5. Admin System ---
     Route::prefix('admin')->name('admin.')->group(function () {
 
+        // จัดการห้องประชุม
         Route::resource('rooms', RoomController::class);
-        Route::resource('users', \App\Http\Controllers\Admin\UserController::class);
 
-        // ✅ Route สำหรับ API จัดการกอง/แผนก (ใช้แค่ Store/Update/Destroy พอ)
-        Route::resource('divisions', \App\Http\Controllers\Admin\DivisionController::class)->only(['store', 'update', 'destroy']);
-        Route::resource('departments', \App\Http\Controllers\Admin\DepartmentController::class)->only(['store', 'update', 'destroy']);
+        // จัดการผู้ใช้งาน
+        Route::resource('users', UserController::class);
 
+        // จัดการโครงสร้างองค์กร (ใช้แค่บาง Method)
+        Route::resource('divisions', DivisionController::class)->only(['store', 'update', 'destroy']);
+        Route::resource('departments', DepartmentController::class)->only(['store', 'update', 'destroy']);
 
-        // แก้ไข Route Amenities ให้ถูกต้อง
-        Route::get('/amenities', [App\Http\Controllers\Admin\AmenityController::class, 'index'])
-            ->name('amenities.index'); // จะกลายเป็น admin.amenities.index อัตโนมัติ
-
-        Route::post('/amenities', [App\Http\Controllers\Admin\AmenityController::class, 'store'])
-            ->name('amenities.store');
-
-        Route::delete('/amenities/{amenity}', [App\Http\Controllers\Admin\AmenityController::class, 'destroy'])
-            ->name('amenities.destroy');
+        // จัดการสิ่งอำนวยความสะดวก (Amenities)
+        Route::get('/amenities', [AmenityController::class, 'index'])->name('amenities.index');
+        Route::post('/amenities', [AmenityController::class, 'store'])->name('amenities.store');
+        Route::delete('/amenities/{amenity}', [AmenityController::class, 'destroy'])->name('amenities.destroy');
     });
 
 
-    // --- 4. User Profile ---
+    // --- 6. User Profile ---
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
-
-Route::get('/api/calendar-events', [BookingController::class, 'calendarEvents'])->name('api.calendar-events');
-Route::get('/calendar', function () {
-    return Inertia::render('Calendar/Index');
-})->name('calendar.index');
 
 require __DIR__.'/auth.php';

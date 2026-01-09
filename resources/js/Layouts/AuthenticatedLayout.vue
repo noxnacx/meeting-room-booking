@@ -34,6 +34,13 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
 
                                 <NavLink
+                                    :href="route('bookings.select_room')"
+                                    :active="route().current('bookings.select_room')"
+                                >
+                                    จองห้องประชุม
+                                </NavLink>
+
+                                <NavLink
                                     :href="route('bookings.index')"
                                     :active="route().current('bookings.index')"
                                 >
@@ -165,6 +172,13 @@ const showingNavigationDropdown = ref(false);
                             :active="route().current('dashboard')"
                         >
                             Dashboard
+                        </ResponsiveNavLink>
+
+                        <ResponsiveNavLink
+                            :href="route('bookings.select_room')"
+                            :active="route().current('bookings.select_room')"
+                        >
+                            จองห้องประชุม
                         </ResponsiveNavLink>
 
                         <ResponsiveNavLink

@@ -12,17 +12,15 @@ use App\Models\Department; // เพิ่ม use เพื่อความส
 
 class BookingController extends Controller
 {
-    // 1. หน้าแสดงประวัติการจอง (อัปเกรด: เพิ่มตัวกรอง + รายละเอียดผู้จอง)
+    // 1. หน้าแสดงประวัติการจอง (เพิ่มตัวกรองห้องประชุม)
     public function index(Request $request)
     {
         $user = auth()->user();
 
-        // เริ่ม Query พร้อมดึงความสัมพันธ์ที่ต้องใช้ (room, user+division+department, participants)
         $query = Booking::with(['room', 'user.division', 'user.department', 'participants'])
             ->orderBy('start_time', 'desc');
 
         // --- Permission Check ---
-        // ถ้าไม่ใช่ Admin/Sub Admin เห็นแค่ของตัวเอง + ที่ถูกเชิญ
         if (!$user->isAdmin() && !$user->isSubAdmin()) {
             $query->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
@@ -34,7 +32,7 @@ class BookingController extends Controller
 
         // --- 🔍 Filter Logic ---
 
-        // 1. ค้นหา (ชื่อหัวข้อ หรือ ชื่อผู้จอง)
+        // 1. ค้นหา
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
@@ -45,21 +43,26 @@ class BookingController extends Controller
             });
         }
 
-        // 2. กรองตามกอง (ของผู้จอง)
+        // 2. กรองตามห้องประชุม (✅ เพิ่มใหม่)
+        if ($request->filled('room_id')) {
+            $query->where('room_id', $request->room_id);
+        }
+
+        // 3. กรองตามกอง
         if ($request->filled('division_id')) {
             $query->whereHas('user', function($q) use ($request) {
                 $q->where('division_id', $request->division_id);
             });
         }
 
-        // 3. กรองตามแผนก (ของผู้จอง)
+        // 4. กรองตามแผนก
         if ($request->filled('department_id')) {
             $query->whereHas('user', function($q) use ($request) {
                 $q->where('department_id', $request->department_id);
             });
         }
 
-        // 4. กรองช่วงเวลา (วันที่เริ่ม - วันที่สิ้นสุด)
+        // 5. กรองช่วงเวลา
         if ($request->filled('start_date')) {
             $query->whereDate('start_time', '>=', $request->start_date);
         }
@@ -67,38 +70,17 @@ class BookingController extends Controller
             $query->whereDate('start_time', '<=', $request->end_date);
         }
 
-        // Pagination + เก็บ Query String ไว้เวลากดหน้าถัดไป
         $bookings = $query->paginate(10)->withQueryString();
 
-        // ส่งข้อมูลกอง/แผนก ไปทำ Dropdown ตัวกรอง
+        // ส่งข้อมูล Master Data ไปทำ Dropdown
         $divisions = \App\Models\Division::with('departments')->orderBy('name')->get();
+        $rooms = \App\Models\Room::orderBy('name')->get(); // ✅ ดึงรายชื่อห้องส่งไป
 
         return Inertia::render('Bookings/Index', [
             'bookings' => $bookings,
             'divisions' => $divisions,
-            'filters' => $request->only(['search', 'division_id', 'department_id', 'start_date', 'end_date'])
-        ]);
-    }
-
-    // 2. หน้าฟอร์มจอง
-    public function create(Room $room)
-    {
-        if ($room->status !== 'active') {
-            return redirect()->route('dashboard')->with('error', 'ห้องนี้ปิดปรับปรุงชั่วคราว');
-        }
-
-        // ✅ 1. ดึง division_id ของ user มาด้วย (สำคัญมาก เอาไว้กรองหน้าบ้าน)
-        $users = User::where('id', '!=', auth()->id())
-            ->orderBy('name', 'asc')
-            ->get(['id', 'name', 'nickname', 'email', 'avatar', 'department_id', 'division_id']);
-
-        // ✅ 2. เปลี่ยนจากส่ง departments เป็น divisions (พร้อมลูกๆ departments)
-        $divisions = \App\Models\Division::with('departments')->orderBy('name')->get();
-
-        return Inertia::render('Bookings/Create', [
-            'room' => $room,
-            'users' => $users,
-            'divisions' => $divisions // ส่งตัวนี้แทน departments
+            'rooms' => $rooms, // ✅ ส่งไปหน้าบ้าน
+            'filters' => $request->only(['search', 'room_id', 'division_id', 'department_id', 'start_date', 'end_date'])
         ]);
     }
 
@@ -332,4 +314,71 @@ class BookingController extends Controller
 
         return response()->json($events);
     }
+
+    // ...
+
+    // แก้ไขฟังก์ชัน dashboard
+    public function dashboard()
+    {
+        $user = auth()->user();
+
+        // 1. Stats
+        $totalBookings = Booking::whereDate('start_time', now())->count();
+        $myBookings = Booking::where('user_id', $user->id)->count(); // ของฉัน (รวมทั้งหมด)
+
+        // 2. Upcoming Meetings (รายการที่จะถึงเร็วๆ นี้ 5 อันดับ)
+        // เปลี่ยนจากดูแค่ "วันนี้" เป็น "อนาคต" จะได้เห็นภาพรวมดีกว่า
+        $upcomingMeetings = Booking::where('start_time', '>=', now())
+            ->where(function($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereHas('participants', function($p) use ($user) {
+                      $p->where('users.id', $user->id);
+                  });
+            })
+            ->orderBy('start_time', 'asc')
+            ->take(5) // เอาแค่ 5 อัน
+            ->with('room')
+            ->get();
+
+        // 3. Popular Rooms
+        $popularRooms = Room::withCount('bookings')
+            ->orderBy('bookings_count', 'desc')
+            ->take(3)
+            ->get();
+
+        // 4. ✅ Real-time Room Status (เช็คว่าตอนนี้ห้องว่างไหม)
+        $roomStatus = Room::where('status', 'active')->get()->map(function($room) {
+            // เช็คว่ามี Booking ไหนที่ "คร่อม" เวลาปัจจุบันอยู่ไหม
+            $isBusy = $room->bookings()
+                ->where('start_time', '<=', now())
+                ->where('end_time', '>', now())
+                ->exists();
+
+            $room->current_status = $isBusy ? 'busy' : 'available';
+            return $room;
+        });
+
+        return Inertia::render('Dashboard', [
+            'stats' => [
+                'total' => $totalBookings,
+                'mine' => $myBookings,
+            ],
+            'upcomingMeetings' => $upcomingMeetings, // เปลี่ยนชื่อตัวแปร
+            'popularRooms' => $popularRooms,
+            'roomStatus' => $roomStatus // ✅ ส่งข้อมูลสถานะห้องไป
+        ]);
+    }
+
+    // 2. หน้าเลือกห้องจอง (ย้ายมาจาก Dashboard เก่า)
+    public function selectRoom()
+    {
+        $rooms = Room::where('status', 'active')->get(); // เอาเฉพาะห้องที่เปิด
+        $allAmenities = \App\Models\Amenity::all()->keyBy('id'); // ดึงอุปกรณ์
+
+        return Inertia::render('Bookings/SelectRoom', [
+            'rooms' => $rooms,
+            'allAmenities' => $allAmenities
+        ]);
+    }
+
 }

@@ -2,18 +2,23 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
 
-const props = defineProps({
-    rooms: Array,
-    allAmenities: Object // รับข้อมูลอุปกรณ์ทั้งหมดมาเพื่อแปลง ID เป็น Icon
+defineProps({
+    stats: Object,
+    upcomingMeetings: Array, // รับตัวแปรใหม่
+    popularRooms: Array,
+    roomStatus: Array // รับข้อมูลสถานะห้อง
 });
 
-// Helper แปลง ID เป็น Icon/Name
-const getAmenityData = (id) => {
-    // ป้องกัน Error กรณีข้อมูลเก่า หรือหา ID ไม่เจอ
-    if (!props.allAmenities || !props.allAmenities[id]) {
-        return { icon: '❓', name: 'Unknown' };
-    }
-    return props.allAmenities[id];
+// Helper แปลงเวลา
+const formatDateTime = (dateStr) => {
+    const d = new Date(dateStr);
+    const today = new Date();
+    const isToday = d.toDateString() === today.toDateString();
+
+    const time = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const date = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+
+    return isToday ? `วันนี้ ${time}` : `${date} ${time}`;
 };
 </script>
 
@@ -22,86 +27,103 @@ const getAmenityData = (id) => {
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                เลือกห้องประชุมที่ต้องการจอง
-            </h2>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight">Dashboard ภาพรวม</h2>
         </template>
 
         <div class="py-12 bg-gray-50 min-h-screen">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
 
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-
-                    <div v-for="room in rooms" :key="room.id"
-                         class="bg-white overflow-hidden shadow-sm hover:shadow-xl rounded-2xl border border-gray-100 transition-all duration-300 flex flex-col h-full group">
-
-                        <div class="h-56 w-full bg-gray-200 relative overflow-hidden">
-                            <img
-                                v-if="room.image_path"
-                                :src="`/storage/${room.image_path}`"
-                                class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                            >
-                            <div v-else class="w-full h-full flex items-center justify-center text-gray-400 bg-gray-100">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
-                            </div>
-
-                            <div class="absolute top-4 right-4">
-                                <span v-if="room.status === 'active'" class="bg-white/90 text-green-700 text-xs font-bold px-3 py-1.5 rounded-full shadow-sm backdrop-blur-sm flex items-center gap-1">
-                                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> พร้อมใช้งาน
-                                </span>
-                                <span v-else class="bg-gray-900/90 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-sm backdrop-blur-sm flex items-center gap-1">
-                                    ⛔ ปิดปรับปรุง
-                                </span>
-                            </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 hover:shadow-md transition">
+                        <div class="p-3 bg-indigo-50 text-indigo-600 rounded-xl text-2xl">📅</div>
+                        <div>
+                            <div class="text-sm text-gray-500 font-bold">การจองของฉัน</div>
+                            <div class="text-3xl font-bold text-gray-800">{{ stats.mine }} <span class="text-sm font-normal text-gray-400">ครั้ง</span></div>
                         </div>
+                    </div>
 
-                        <div class="p-6 flex-grow flex flex-col">
-                            <div class="flex items-center gap-2 mb-2">
-                                <div class="w-3 h-3 rounded-full shadow-sm" :style="{ backgroundColor: room.color }"></div>
-                                <h3 class="text-xl font-bold text-gray-800 group-hover:text-indigo-600 transition">{{ room.name }}</h3>
-                            </div>
-
-                            <p class="text-gray-500 text-sm mb-4 line-clamp-2 h-10 leading-relaxed">
-                                {{ room.description || 'ห้องประชุมมาตรฐาน พร้อมอุปกรณ์ครบครัน' }}
-                            </p>
-
-                            <div class="flex flex-wrap gap-2 mb-6">
-                                <template v-for="amId in room.amenities" :key="amId">
-                                    <span v-if="allAmenities[amId]"
-                                        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-50 text-xs font-semibold text-gray-600 border border-gray-100"
-                                        :title="allAmenities[amId].name"
-                                    >
-                                        <span class="text-sm">{{ allAmenities[amId].icon }}</span>
-                                        <span class="">{{ allAmenities[amId].name }}</span>
-                                    </span>
-                                </template>
-                            </div>
-
-                            <div class="flex items-center justify-between mt-auto pt-4 border-t border-gray-100">
-                                <span class="bg-gray-50 text-gray-600 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 border border-gray-200">
-                                    👤 {{ room.capacity }} ที่นั่ง
-                                </span>
-
-                                <Link
-                                    v-if="room.status === 'active'"
-                                    :href="route('bookings.create', room.id)"
-                                    class="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
-                                >
-                                    จองห้องนี้ ➜
-                                </Link>
-
-                                <button
-                                    v-else
-                                    disabled
-                                    class="bg-gray-100 text-gray-400 px-5 py-2.5 rounded-xl text-sm font-bold cursor-not-allowed border border-gray-200 flex items-center gap-2 select-none"
-                                >
-                                    ⛔ ปิดปรับปรุง
-                                </button>
-                            </div>
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 hover:shadow-md transition">
+                        <div class="p-3 bg-emerald-50 text-emerald-600 rounded-xl text-2xl">📊</div>
+                        <div>
+                            <div class="text-sm text-gray-500 font-bold">การจองทั้งหมดวันนี้ </div>
+                            <div class="text-3xl font-bold text-gray-800">{{ stats.total }} <span class="text-sm font-normal text-gray-400">ครั้ง</span></div>
                         </div>
+                    </div>
 
+                    <Link :href="route('bookings.select_room')" class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition transform hover:-translate-y-1 flex items-center justify-between group">
+                        <div>
+                            <div class="font-bold text-lg">จองห้องประชุมทันที</div>
+                            <div class="text-indigo-100 text-sm">คลิกเพื่อเลือกห้อง</div>
+                        </div>
+                        <span class="text-3xl group-hover:translate-x-1 transition">➜</span>
+                    </Link>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        🔴 สถานะห้องประชุมขณะนี้ (Live Status)
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                        <div v-for="room in roomStatus" :key="room.id"
+                             class="p-4 rounded-xl border flex items-center justify-between transition"
+                             :class="room.current_status === 'busy' ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'">
+
+                            <div class="flex items-center gap-3">
+                                <div class="w-3 h-3 rounded-full animate-pulse" :class="room.current_status === 'busy' ? 'bg-red-500' : 'bg-green-500'"></div>
+                                <span class="font-bold text-gray-700 text-sm">{{ room.name }}</span>
+                            </div>
+
+                            <span class="text-xs font-bold px-2 py-1 rounded-lg"
+                                  :class="room.current_status === 'busy' ? 'text-red-600 bg-red-100' : 'text-green-600 bg-green-100'">
+                                {{ room.current_status === 'busy' ? 'ไม่ว่าง' : 'ว่าง' }}
+                            </span>
+                        </div>
                     </div>
                 </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            ⏰ การนัดหมายของคุณ (เร็วๆ นี้)
+                        </h3>
+                        <div v-if="upcomingMeetings.length > 0" class="space-y-3">
+                            <div v-for="meeting in upcomingMeetings" :key="meeting.id" class="flex gap-4 p-3 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition">
+                                <div class="flex flex-col items-center justify-center bg-white px-3 py-1 rounded-lg border border-gray-200 min-w-[80px]">
+                                    <span class="text-indigo-600 font-bold text-xs text-center">{{ formatDateTime(meeting.start_time) }}</span>
+                                </div>
+                                <div>
+                                    <div class="font-bold text-gray-800 line-clamp-1 text-sm">{{ meeting.title }}</div>
+                                    <div class="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                        <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: meeting.room.color }"></span>
+                                        {{ meeting.room.name }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="text-center py-10 text-gray-400">
+                            ยังไม่มีนัดหมายเร็วๆ นี้ สบายตัว! 🎉
+                        </div>
+
+                        <div class="mt-4 text-center">
+                             <Link :href="route('bookings.index')" class="text-sm text-indigo-600 hover:text-indigo-800 font-bold">ดูประวัติทั้งหมด ➜</Link>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="font-bold text-gray-800 mb-4">🏆 ห้องยอดนิยม</h3>
+                        <div class="space-y-4">
+                            <div v-for="(room, index) in popularRooms" :key="room.id" class="flex items-center justify-between border-b border-gray-50 pb-2 last:border-0">
+                                <div class="flex items-center gap-3">
+                                    <span class="w-6 h-6 flex items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-600">{{ index + 1 }}</span>
+                                    <span class="font-medium text-gray-700 text-sm">{{ room.name }}</span>
+                                </div>
+                                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md font-bold">{{ room.bookings_count }} ครั้ง</span>
+                            </div>
+                            <div v-if="popularRooms.length === 0" class="text-gray-400 text-sm italic">ยังไม่มีข้อมูลสถิติ</div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </AuthenticatedLayout>

@@ -4,29 +4,30 @@ import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { ref, watch, computed } from 'vue';
 
 const props = defineProps({
-    bookings: Object, // เปลี่ยนเป็น Object เพราะมี Pagination
+    bookings: Object,
     divisions: Array,
+    rooms: Array, // ✅ รับค่า rooms มาจาก Controller
     filters: Object
 });
 
 // --- Filter State ---
 const search = ref(props.filters.search || '');
+const selectedRoom = ref(props.filters.room_id || ''); // ✅ ตัวแปรเก็บค่าห้องที่เลือก
 const selectedDivision = ref(props.filters.division_id || '');
 const selectedDepartment = ref(props.filters.department_id || '');
 const startDate = ref(props.filters.start_date || '');
 const endDate = ref(props.filters.end_date || '');
 
-// Computed: กรองแผนกตามกองที่เลือก
 const availableDepartments = computed(() => {
     if (!selectedDivision.value) return [];
     const div = props.divisions.find(d => d.id == selectedDivision.value);
     return div ? div.departments : [];
 });
 
-// Watchers: เมื่อค่าเปลี่ยน ให้รีโหลดหน้าพร้อมส่งค่าไป Filter
 const applyFilter = () => {
     router.get(route('bookings.index'), {
         search: search.value,
+        room_id: selectedRoom.value, // ✅ ส่งค่าห้องไปกรอง
         division_id: selectedDivision.value,
         department_id: selectedDepartment.value,
         start_date: startDate.value,
@@ -34,13 +35,10 @@ const applyFilter = () => {
     }, { preserveState: true, replace: true, preserveScroll: true });
 };
 
+// เพิ่ม selectedRoom ใน Watcher
 watch(selectedDivision, () => { selectedDepartment.value = ''; applyFilter(); });
-watch([search, selectedDepartment, startDate, endDate], () => {
-    // ใช้ debounce เล็กน้อยสำหรับ search ได้ถ้าต้องการ แต่ใส่ตรงนี้ก็ทำงานได้เลย
-    applyFilter();
-});
+watch([search, selectedRoom, selectedDepartment, startDate, endDate], () => applyFilter());
 
-// --- Helpers ---
 const formatDateTime = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('th-TH', {
@@ -84,6 +82,11 @@ const canEdit = (booking) => {
                         <input v-model.lazy="search" placeholder="ค้นหาหัวข้อ / ชื่อผู้จอง..." class="pl-9 w-full rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500 text-sm">
                     </div>
 
+                    <select v-model="selectedRoom" class="rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500 text-sm min-w-[160px]">
+                        <option value="">🏢 ทุกห้องประชุม</option>
+                        <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.name }}</option>
+                    </select>
+
                     <div class="flex flex-col md:flex-row gap-3">
                         <select v-model="selectedDivision" class="rounded-xl border-gray-300 shadow-sm focus:ring-indigo-500 text-sm min-w-[160px]">
                             <option value="">📂 ทุกกอง</option>
@@ -125,9 +128,9 @@ const canEdit = (booking) => {
                                             {{ formatDateTime(booking.start_time) }}
                                         </div>
                                         <div class="text-xs text-gray-400 mt-1">
-                                            ถึง {{ formatDateTime(booking.end_time).split(' ')[3] }} </div>
+                                            ถึง {{ formatDateTime(booking.end_time).split(' ')[3] }}
+                                        </div>
                                     </td>
-
                                     <td class="px-6 py-4">
                                         <div class="text-sm font-bold text-gray-800">{{ booking.title }}</div>
                                         <div class="text-xs text-gray-500 flex items-center gap-1 mt-1">
@@ -135,7 +138,6 @@ const canEdit = (booking) => {
                                             {{ booking.room.name }}
                                         </div>
                                     </td>
-
                                     <td class="px-6 py-4">
                                         <div class="flex items-center">
                                             <div class="flex-shrink-0 h-8 w-8">
@@ -150,25 +152,16 @@ const canEdit = (booking) => {
                                                 <div class="text-xs text-gray-500">
                                                     <span v-if="booking.user.division">📂 {{ booking.user.division.name }}</span>
                                                     <span v-if="booking.user.department" class="ml-1">📑 {{ booking.user.department.name }}</span>
-                                                    <span v-if="!booking.user.division && !booking.user.department">- ไม่ระบุสังกัด -</span>
                                                 </div>
                                             </div>
                                         </div>
                                     </td>
-
                                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <div class="flex justify-end gap-2">
-                                            <Link :href="route('bookings.show', booking.id)" class="text-gray-400 hover:text-indigo-600 bg-gray-50 hover:bg-indigo-50 p-2 rounded-lg transition" title="ดูรายละเอียด">
-                                                📄
-                                            </Link>
-
+                                            <Link :href="route('bookings.show', booking.id)" class="text-gray-400 hover:text-indigo-600 bg-gray-50 hover:bg-indigo-50 p-2 rounded-lg transition">📄</Link>
                                             <template v-if="canEdit(booking)">
-                                                <Link :href="route('bookings.edit', booking.id)" class="text-amber-500 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 p-2 rounded-lg transition" title="แก้ไข">
-                                                    ✏️
-                                                </Link>
-                                                <button @click="cancelBooking(booking.id)" class="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition" title="ยกเลิก">
-                                                    🗑️
-                                                </button>
+                                                <Link :href="route('bookings.edit', booking.id)" class="text-amber-500 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 p-2 rounded-lg transition">✏️</Link>
+                                                <button @click="cancelBooking(booking.id)" class="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition">🗑️</button>
                                             </template>
                                         </div>
                                     </td>
@@ -182,7 +175,7 @@ const canEdit = (booking) => {
                             แสดง {{ bookings.from }} ถึง {{ bookings.to }} จาก {{ bookings.total }} รายการ
                         </div>
                         <div class="flex gap-1">
-                            <Link v-for="(link, i) in bookings.links" :key="i"
+                             <Link v-for="(link, i) in bookings.links" :key="i"
                                 :href="link.url || '#'"
                                 v-html="link.label"
                                 class="px-3 py-1 rounded-md text-xs font-bold transition"
@@ -194,11 +187,9 @@ const canEdit = (booking) => {
                             />
                         </div>
                     </div>
-
-                    <div v-else class="p-10 text-center">
+                     <div v-else class="p-10 text-center">
                         <div class="text-4xl mb-3">📭</div>
                         <h3 class="text-gray-900 font-bold">ไม่พบประวัติการจอง</h3>
-                        <p class="text-gray-500 text-sm">ลองเปลี่ยนเงื่อนไขการค้นหาดูนะครับ</p>
                     </div>
                 </div>
             </div>
