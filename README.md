@@ -35,4 +35,14 @@
 * **Build Tool:** Vite
 * **Database:** MySQL / PostgreSQL
 
+
+
+<img width="1889" height="924" alt="image" src="https://github.com/user-attachments/assets/95b6608c-6ee2-461a-b8be-a1fbd3fdb412" />
+<img width="1867" height="917" alt="image" src="https://github.com/user-attachments/assets/38f1cd5b-7002-494c-8030-61a14af71f91" />
+<img width="1863" height="908" alt="image" src="https://github.com/user-attachments/assets/e43a9a04-2e93-4dc7-95d1-6d8073a7755b" />
+<img width="1878" height="915" alt="image" src="https://github.com/user-attachments/assets/8c2fd790-c49b-4240-8ade-6cffb5ce4ffe" />
+
+
+
+
 ---
